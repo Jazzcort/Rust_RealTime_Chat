@@ -1,0 +1,12 @@
+[package]
+name = "chat_client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.39.3", features = ["full"] }
+clap = { version = "4.5.8", features = ["derive"]}
+ratatui = "0.28.1"
+crossterm = "0.28.1"
+regex = "=1.10.6"
+dotenv_codegen = "0.15.0"
