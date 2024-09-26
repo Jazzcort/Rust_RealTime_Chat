@@ -15,11 +15,11 @@ And then lauch the application in the terminal with the following command
 ## Mac
 Remember to grant the access to execute the program with the following script
 ```shell
-chmod +x chat_client_v1.0.0_aarch64_MacOS.0_aarch64
+chmod +x chat_client_v1.0.0_aarch64_MacOS
 ```
 And then lauch the application in the terminal with the following command
 ```shell
-./chat_client_v1.0.0_aarch64_MacOS.0_aarch64
+./chat_client_v1.0.0_aarch64_MacOS
 ```
 ## Windows
 Simply double click the exe file should successfully lauch the application
