@@ -51,7 +51,6 @@ impl Client {
         Ok((tx, rx_abandon, room_id))
     }
 
-    // Todo
     pub(crate) async fn enter_room(
         username: String,
         room_id: String,
@@ -120,30 +119,37 @@ impl Client {
             loop {
                 tokio::select! {
                     result = reader.fill_buf() => {
-                        let buffer = Vec::from(result.unwrap());
-                        reader.consume(buffer.len());
-                        if buffer.len() == 0 {
+                        if result.is_ok() {
+                            let buffer = Vec::from(result.unwrap());
+                            reader.consume(buffer.len());
+                            if buffer.len() == 0 {
+                                break;
+                            }
+
+                            let msg = String::from_utf8_lossy(&buffer);
+
+                            if let Some(disconnected_user) = match_regex_left(&msg) {
+                                let mut chat_room_member_handle = chat_room_member.lock().await;
+                                if let Some(pos) = chat_room_member_handle.iter().position(|x| *x == disconnected_user) {
+                                    chat_room_member_handle.remove(pos);
+                                }
+                            } else if let Some(joined_user) = match_regex_join(&msg) {
+                                let mut chat_room_member_handle = chat_room_member.lock().await;
+                                chat_room_member_handle.push(joined_user);
+                            }
+
+                            let mut room_record_handle = chat_room_record.lock().await;
+                            room_record_handle.push_back(msg.trim_end().to_string());
+                            if room_record_handle.len() > record_size {
+                                room_record_handle.pop_front();
+                            }
+                            drop(room_record_handle);
+
+                        } else {
+                            // Stream timeout or reset
                             break;
                         }
 
-                        let msg = String::from_utf8_lossy(&buffer);
-
-                        if let Some(disconnected_user) = match_regex_left(&msg) {
-                            let mut chat_room_member_handle = chat_room_member.lock().await;
-                            if let Some(pos) = chat_room_member_handle.iter().position(|x| *x == disconnected_user) {
-                                chat_room_member_handle.remove(pos);
-                            }
-                        } else if let Some(joined_user) = match_regex_join(&msg) {
-                            let mut chat_room_member_handle = chat_room_member.lock().await;
-                            chat_room_member_handle.push(joined_user);
-                        }
-
-                        let mut room_record_handle = chat_room_record.lock().await;
-                        room_record_handle.push_back(msg.trim_end().to_string());
-                        if room_record_handle.len() > record_size {
-                            room_record_handle.pop_front();
-                        }
-                        drop(room_record_handle);
                     }
                     result = rx.recv() => {
                         if let Some(user_input) = result {
@@ -163,8 +169,10 @@ impl Client {
 }
 
 fn match_regex_left(hay: &str) -> Option<String> {
-    static RE: Lazy<Regex> =
-        Lazy::new(|| Regex::new(r#"^([^!@#$%\^\&\*\(\)\+=\[\]\{\}:;'"/<>|\\`~\?,\.\s]+) has left the chat room"#).unwrap());
+    static RE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r#"^([^!@#$%\^\&\*\(\)\+=\[\]\{\}:;'"/<>|\\`~\?,\.\s]+) has left the chat room"#)
+            .unwrap()
+    });
     if let Some(cap) = RE.captures(hay) {
         if let Some(first) = cap.get(1) {
             return Some(first.as_str().to_string());
@@ -175,8 +183,10 @@ fn match_regex_left(hay: &str) -> Option<String> {
 
 fn match_regex_join(hay: &str) -> Option<String> {
     static RE2: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r#"^([^!@#$%\^\&\*\(\)\+=\[\]\{\}:;'"/<>|\\`~\?,\.\s]+) has joined the chat room"#)
-            .unwrap()
+        Regex::new(
+            r#"^([^!@#$%\^\&\*\(\)\+=\[\]\{\}:;'"/<>|\\`~\?,\.\s]+) has joined the chat room"#,
+        )
+        .unwrap()
     });
     if let Some(cap) = RE2.captures(hay) {
         if let Some(first) = cap.get(1) {
