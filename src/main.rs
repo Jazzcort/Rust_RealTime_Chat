@@ -286,40 +286,13 @@ async fn run_app<B: Backend>(
                 CurrentScreen::Join => match key.code {
                     KeyCode::Backspace => {
                         app.join_room_error = None;
-                        match app.join_room_input {
-                            JoinRoomInput::Username => {
-                                app.username.pop();
-                            }
-                            JoinRoomInput::RoomId => {
-                                app.room_id.pop();
-                            }
-                        }
+                        app.username.pop();
                     }
                     KeyCode::Char(value) => {
                         app.join_room_error = None;
-                        match app.join_room_input {
-                            JoinRoomInput::Username => {
-                                app.username.push(value);
-                            }
-                            JoinRoomInput::RoomId => {
-                                app.room_id.push(value);
-                            }
-                        }
+                        app.username.push(value);
                     }
-                    KeyCode::Tab => match app.join_room_input {
-                        JoinRoomInput::Username => {
-                            app.join_room_input = JoinRoomInput::RoomId;
-                        }
-                        JoinRoomInput::RoomId => {
-                            app.join_room_input = JoinRoomInput::Username;
-                        }
-                    },
                     KeyCode::Enter => {
-                        if app.room_id.len() != 8 {
-                            app.join_room_error = Some(JoinRoomError::RoomIdLengthError);
-                            continue;
-                        }
-
                         if app.username.len() < 1 || app.username.len() > 50 {
                             app.join_room_error = Some(JoinRoomError::InvalidUsernameLength);
                             continue;
@@ -334,6 +307,7 @@ async fn run_app<B: Backend>(
                             app.room_lst = room_lst;
                         } else {
                             app.join_room_error = Some(JoinRoomError::GetRoomListFailed);
+                            continue;
                         }
 
                         if app.room_lst.len() != 0 {
@@ -344,7 +318,6 @@ async fn run_app<B: Backend>(
                     }
                     KeyCode::Esc => {
                         app.username.clear();
-                        app.room_id.clear();
                         app.join_room_error = None;
                         app.current_screen = CurrentScreen::Entry;
                     }
@@ -370,6 +343,7 @@ async fn run_app<B: Backend>(
                             .await
                             {
                                 app.msg_pipe = Some(msg_pipe);
+                                app.room_name = select_room.1;
                                 app.enter_room(room_id);
                             } else {
                                 app.join_room_error = Some(JoinRoomError::RoomNotFound)
@@ -378,8 +352,10 @@ async fn run_app<B: Backend>(
                     }
                     KeyCode::Esc => {
                         app.current_screen = CurrentScreen::Join;
+                        app.join_room_error = None;
                     }
                     KeyCode::Char('r') => {
+                        app.join_room_error = None;
                         if let Ok(room_lst) = Client::get_room_list(remote_server).await {
                             if room_lst.len() != 0 {
                                 app.room_lst = room_lst;
@@ -397,11 +373,15 @@ async fn run_app<B: Backend>(
                             app.current_screen = CurrentScreen::Join;
                         }
                     }
-                    KeyCode::Up => match app.room_idx.checked_sub(1) {
-                        Some(val) => app.room_idx = val,
-                        None => app.room_idx = 0,
-                    },
+                    KeyCode::Up => {
+                        app.join_room_error = None;
+                        match app.room_idx.checked_sub(1) {
+                            Some(val) => app.room_idx = val,
+                            None => app.room_idx = 0,
+                        }
+                    }
                     KeyCode::Down => {
+                        app.join_room_error = None;
                         if app.room_lst.len() > app.room_idx + 1 {
                             app.room_idx += 1;
                         }
@@ -423,9 +403,10 @@ async fn run_app<B: Backend>(
                         app.join_room_error = None;
                     }
                     KeyCode::Enter => {
+                        let select_room = app.room_lst[app.room_idx].clone();
                         match Client::enter_room(
                             app.username.clone(),
-                            app.room_lst[app.room_idx].0.clone(),
+                            select_room.0,
                             Some(app.check_passwork.clone()),
                             app.chat_room_record.clone(),
                             app.chat_room_member.clone(),
@@ -436,6 +417,7 @@ async fn run_app<B: Backend>(
                         .await
                         {
                             Ok((msg_pipe, room_id)) => {
+                                app.room_name = select_room.1;
                                 app.msg_pipe = Some(msg_pipe);
                                 app.enter_room(room_id);
                             }

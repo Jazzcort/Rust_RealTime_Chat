@@ -244,7 +244,8 @@ pub fn ui(
                 Some(error) => {
                     let error_msg = match error {
                         JoinRoomError::InvalidUsername => {
-                            "Username should not contain special characters".to_string()
+                            "Username should not contain special characters or whitespace"
+                                .to_string()
                         }
                         JoinRoomError::RoomIdLengthError => "Invalid Room Id format".to_string(),
                         JoinRoomError::RoomNotFound => "Room not found".to_string(),
@@ -267,38 +268,38 @@ pub fn ui(
                 None => {}
             }
 
-            let popup_area = centered_rect_with_constant_size(40, 6, area_chunks[1]);
-            let popup_chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Fill(1), Constraint::Fill(1)])
-                .split(popup_area);
+            let popup_area = centered_rect_with_constant_size(40, 3, area_chunks[1]);
+            //let popup_chunks = Layout::default()
+            //    .direction(Direction::Vertical)
+            //    .constraints([Constraint::Fill(1), Constraint::Fill(1)])
+            //    .split(popup_area);
 
-            let active_style = Style::default().bg(Color::LightYellow).fg(Color::Black);
+            //let active_style = Style::default().bg(Color::LightYellow).fg(Color::Black);
 
-            let mut username_input_block = Block::default()
+            let username_input_block = Block::default()
                 .title("Please enter a uername")
                 .borders(Borders::ALL)
-                .style(Style::default().bg(Color::DarkGray).fg(Color::Black));
+                .style(Style::default().bg(Color::LightYellow).fg(Color::Black));
 
-            let mut room_id_input_block = Block::default()
-                .title("Please enter the room ID")
-                .borders(Borders::ALL)
-                .style(Style::default().bg(Color::DarkGray).fg(Color::Black));
+            //let mut room_id_input_block = Block::default()
+            //    .title("Please enter the room ID")
+            //    .borders(Borders::ALL)
+            //    .style(Style::default().bg(Color::DarkGray).fg(Color::Black));
 
-            match app.join_room_input {
-                JoinRoomInput::Username => {
-                    username_input_block = username_input_block.style(active_style)
-                }
-                JoinRoomInput::RoomId => {
-                    room_id_input_block = room_id_input_block.style(active_style)
-                }
-            };
+            //match app.join_room_input {
+            //    JoinRoomInput::Username => {
+            //        username_input_block = username_input_block.style(active_style)
+            //    }
+            //    JoinRoomInput::RoomId => {
+            //        room_id_input_block = room_id_input_block.style(active_style)
+            //    }
+            //};
 
             let username = Paragraph::new(app.username.clone()).block(username_input_block);
-            let room_id = Paragraph::new(app.room_id.clone()).block(room_id_input_block);
+            //let room_id = Paragraph::new(app.room_id.clone()).block(room_id_input_block);
 
-            frame.render_widget(username, popup_chunks[0]);
-            frame.render_widget(room_id, popup_chunks[1])
+            frame.render_widget(username, popup_area);
+            //frame.render_widget(room_id, popup_chunks[1])
         }
         CurrentScreen::RoomSelect => {
             let area_chunks = Layout::default()
@@ -312,7 +313,7 @@ pub fn ui(
                 .split(frame.area());
 
             let instruction_block = Block::default().title("Instructions").borders(Borders::ALL);
-            let instructions = Paragraph::new("Enter = select, ArrowUp = prev room, ArrowDown = next room, Esc = back to set username").block(instruction_block);
+            let instructions = Paragraph::new("Enter = select, 'r' = reload, ArrowUp = prev room, ArrowDown = next room, Esc = back to set username").block(instruction_block);
             frame.render_widget(instructions, area_chunks[3]);
 
             let height = area_chunks[1].height as usize;
@@ -360,8 +361,28 @@ pub fn ui(
                 Paragraph::new(format!("{}/{}", cur_page, total_page)).alignment(Alignment::Center);
             frame.render_widget(page_display, area_chunks[2]);
 
-            let tmp = Paragraph::new(format!("{}", app.room_idx));
-            frame.render_widget(tmp, frame.area());
+            match &app.join_room_error {
+                Some(error) => {
+                    let err_block = Block::default()
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Red));
+                    match error {
+                        JoinRoomError::RoomNotFound => {
+                            let err = Paragraph::new(
+                                "This room doesn't exist anymore, please reload this page with 'r'",
+                            )
+                            .block(err_block);
+
+                            frame.render_widget(err, area_chunks[0]);
+                        }
+                        _ => {}
+                    }
+                }
+                None => {}
+            }
+
+            //let tmp = Paragraph::new(format!("{}", app.room_idx));
+            //frame.render_widget(tmp, frame.area());
         }
         CurrentScreen::PasswordCheck => {
             let area_chunks = Layout::default()
@@ -395,7 +416,7 @@ pub fn ui(
 
                     match error {
                         JoinRoomError::RoomNotFound => {
-                            let err = Paragraph::new("Room has been deleted").block(err_block);
+                            let err = Paragraph::new("This room doesn't exist anymore, please go back to last page and reload").block(err_block);
                             frame.render_widget(err, area_chunks[0]);
                         }
                         JoinRoomError::WrongPassword => {
@@ -467,7 +488,11 @@ pub fn ui(
                 .split(chunks[0]);
 
             let chat_block = Block::default()
-                .title(format!("Room ID: {}", app.room_id.clone()))
+                .title(format!(
+                    "Room ID: {}, Room Name: {}",
+                    app.room_id.clone(),
+                    app.room_name.clone()
+                ))
                 .borders(Borders::ALL)
                 .style(Style::default());
 
