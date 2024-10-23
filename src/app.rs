@@ -6,30 +6,41 @@ use tokio::sync::Mutex;
 pub enum CurrentScreen {
     Entry,
     Create,
+    CreatePassword,
     Join,
+    RoomSelect,
+    PasswordCheck,
     Chat,
-    Exiting
+    Exiting,
 }
 #[derive(Debug)]
 pub enum CurrentSelection {
     Create,
-    Join
+    Join,
 }
 #[derive(Debug)]
 pub enum JoinRoomInput {
     Username,
-    RoomId
+    RoomId,
+}
+#[derive(Debug)]
+pub enum CreateRoomInput {
+    Username,
+    RoomName,
 }
 #[derive(Debug)]
 pub enum ChatRoomMode {
     Input,
-    Normal
+    Normal,
 }
 #[derive(Debug)]
 pub enum CreateRoomError {
+    InvalidRoomNameChar,
     InvalidUsernameChar,
     InvalidUsernameLength,
-    ServerError
+    InvalidRoomNameLength,
+    ServerError,
+    InvalidPasswordChar,
 }
 #[derive(Debug)]
 pub enum JoinRoomError {
@@ -37,6 +48,9 @@ pub enum JoinRoomError {
     InvalidUsernameLength,
     RoomIdLengthError,
     RoomNotFound,
+    GetRoomListFailed,
+    WrongPassword,
+    ZeroRooms,
 }
 
 #[derive(Debug)]
@@ -48,6 +62,8 @@ pub struct App {
     pub current_screen: CurrentScreen,
     pub exiting: bool,
     pub room_id: String,
+    pub room_lst: Vec<(String, String, bool)>,
+    pub room_idx: usize,
     pub username: String,
     pub current_selection: CurrentSelection,
     pub join_room_input: JoinRoomInput,
@@ -56,6 +72,11 @@ pub struct App {
     pub abandon: Arc<Mutex<bool>>,
     pub create_room_error: Option<CreateRoomError>,
     pub join_room_error: Option<JoinRoomError>,
+    pub room_name: String,
+    pub password: String,
+    pub password_prompt: bool,
+    pub create_room_input: CreateRoomInput,
+    pub check_passwork: String,
 }
 
 impl App {
@@ -68,6 +89,8 @@ impl App {
             current_screen: CurrentScreen::Entry,
             exiting: false,
             room_id: String::new(),
+            room_lst: vec![],
+            room_idx: 0,
             username: String::new(),
             current_selection: CurrentSelection::Create,
             join_room_input: JoinRoomInput::Username,
@@ -75,7 +98,12 @@ impl App {
             msg_pipe: None,
             abandon: Arc::new(Mutex::new(false)),
             create_room_error: None,
-            join_room_error: None
+            join_room_error: None,
+            room_name: String::new(),
+            password: String::new(),
+            password_prompt: false,
+            create_room_input: CreateRoomInput::Username,
+            check_passwork: String::new(),
         }
     }
 
@@ -99,6 +127,13 @@ impl App {
         self.msg_pipe = None;
         self.abandon = Arc::new(Mutex::new(false));
         self.create_room_error = None;
-        self.join_room_error = None; 
+        self.join_room_error = None;
+        self.room_idx = 0;
+        self.room_lst = vec![];
+        self.room_name = String::new();
+        self.password = String::new();
+        self.password_prompt = false;
+        self.create_room_input = CreateRoomInput::Username;
+        self.check_passwork = String::new();
     }
 }

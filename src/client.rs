@@ -16,20 +16,24 @@ pub(crate) struct Client;
 impl Client {
     pub(crate) async fn create_room(
         username: String,
+        room_name: String,
+        password: Option<String>,
         chat_room_record: Arc<Mutex<VecDeque<String>>>,
         chat_room_member: Arc<Mutex<Vec<String>>>,
         abandon_handle: Arc<Mutex<bool>>,
         record_size: u32,
         remote_server: &str,
-    ) -> Result<(mpsc::Sender<String>, mpsc::Receiver<u8>, String), Error> {
+    ) -> Result<(mpsc::Sender<String>, String), Error> {
         let mut stream = TcpStream::connect(remote_server).await?;
-        // let mut stream = TcpStream::connect("127.0.0.1:20130").await?;
         let (tx, rx) = mpsc::channel::<String>(10);
-        let (tx_abandon, rx_abandon) = mpsc::channel::<u8>(3);
 
-        let _ = stream
-            .write_all(format!("create\r\n{}", username).as_bytes())
-            .await?;
+        let mut header = format!("create\r\n{}\r\n{}", username, room_name);
+        if let Some(password_string) = password {
+            header += "\r\n";
+            header += &password_string;
+        }
+
+        let _ = stream.write_all(header.as_bytes()).await?;
 
         let (reader, _) = stream.split();
         let mut reader = BufReader::new(reader);
@@ -44,30 +48,33 @@ impl Client {
             chat_room_record,
             chat_room_member,
             abandon_handle,
-            tx_abandon,
             record_size,
         );
 
-        Ok((tx, rx_abandon, room_id))
+        Ok((tx, room_id))
     }
 
     pub(crate) async fn enter_room(
         username: String,
         room_id: String,
+        password: Option<String>,
         chat_room_record: Arc<Mutex<VecDeque<String>>>,
         chat_room_member: Arc<Mutex<Vec<String>>>,
         abandon_handle: Arc<Mutex<bool>>,
         record_size: u32,
         remote_server: &str,
-    ) -> Result<(mpsc::Sender<String>, mpsc::Receiver<u8>, String), Error> {
+    ) -> Result<(mpsc::Sender<String>, String), Error> {
         let mut stream = TcpStream::connect(remote_server).await?;
-        // let mut stream = TcpStream::connect("127.0.0.1:20130").await?;
         let (tx, rx) = mpsc::channel::<String>(10);
-        let (tx_abandon, rx_abandon) = mpsc::channel::<u8>(3);
 
-        let _ = stream
-            .write_all(format!("join\r\n{}\r\n{}", username, room_id).as_bytes())
-            .await?;
+        let mut header = format!("join\r\n{}\r\n{}", username, room_id);
+
+        if let Some(password_string) = password {
+            header += "\r\n";
+            header += &password_string;
+        }
+
+        let _ = stream.write_all(header.as_bytes()).await?;
 
         let (reader, _) = stream.split();
         let mut reader = BufReader::new(reader);
@@ -78,6 +85,8 @@ impl Client {
 
         if &x == "@#$failed" {
             return Err(Error::new(ErrorKind::BrokenPipe, "Room not found"));
+        } else if &x == "@#$wrong" {
+            return Err(Error::new(ErrorKind::InvalidInput, "Password not matched"));
         }
 
         let room_id_and_people = x.split("\r\n").collect::<Vec<&str>>();
@@ -95,11 +104,10 @@ impl Client {
             chat_room_record,
             chat_room_member,
             abandon_handle,
-            tx_abandon,
             record_size,
         );
 
-        Ok((tx, rx_abandon, room_id))
+        Ok((tx, room_id))
     }
 
     fn start_chat(
@@ -108,7 +116,6 @@ impl Client {
         chat_room_record: Arc<Mutex<VecDeque<String>>>,
         chat_room_member: Arc<Mutex<Vec<String>>>,
         abandon_handle: Arc<Mutex<bool>>,
-        tx_abandon: mpsc::Sender<u8>,
         record_size: u32,
     ) {
         task::spawn(async move {
@@ -165,6 +172,35 @@ impl Client {
             *abandon = true;
             // dbg!("client closed!");
         });
+    }
+
+    pub(crate) async fn get_room_list(
+        remote_server: &str,
+    ) -> Result<Vec<(String, String, bool)>, Error> {
+        let mut stream = TcpStream::connect(remote_server).await?;
+        let (reader, mut writer) = stream.split();
+        let mut reader = BufReader::new(reader);
+        writer.write_all("room_list".as_bytes()).await?;
+
+        let buffer = Vec::from(reader.fill_buf().await?);
+        reader.consume(buffer.len());
+
+        let data = String::from_utf8_lossy(&buffer).to_string();
+        let mut room_list = vec![];
+
+        for s in data.split("\r\n") {
+            let tmp = s.split("$#$#").collect::<Vec<&str>>();
+
+            if tmp.len() >= 3 {
+                let has_password = match tmp[2].trim() {
+                    "1" => true,
+                    _ => false,
+                };
+                room_list.push((tmp[0].to_string(), tmp[1].to_string(), has_password));
+            }
+        }
+
+        Ok(room_list)
     }
 }
 

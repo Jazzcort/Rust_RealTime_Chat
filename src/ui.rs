@@ -9,6 +9,8 @@ use std::collections::VecDeque;
 use crate::app::*;
 use lazy_static::lazy_static;
 
+const ROOM_LIST_HEIGHT: usize = 4;
+
 enum MsgType {
     UserMsg,
     OtherMsg,
@@ -22,7 +24,6 @@ lazy_static! {
         str_vec.push("'q' => exit the room");
         str_vec
     };
-
     static ref INPUT_MODE_INSTRUCTION: Vec<&'static str> = {
         let mut str_vec = vec![];
         str_vec.push("'Esc' => exit input mode");
@@ -43,7 +44,7 @@ pub fn ui(
                 .constraints([Constraint::Fill(1), Constraint::Length(3)])
                 .split(frame.area());
             let instruction_block = Block::default()
-                .title("Instruction")
+                .title("Instructions")
                 .borders(Borders::ALL)
                 .style(Style::default());
             let instruction = Paragraph::new("Tab = switch selection, Enter = select, q = quit")
@@ -94,11 +95,21 @@ pub fn ui(
                 Some(error) => {
                     let error_msg = match error {
                         CreateRoomError::InvalidUsernameChar => {
-                            "Username should not contain special characters".to_string()
+                            "Username should not contain special characters and whitespace"
+                                .to_string()
+                        }
+                        CreateRoomError::InvalidRoomNameChar => {
+                            "Room name can only contain numbers, letters, whitespace, and (!, ?, -, >, <, *)".to_string()
                         }
                         CreateRoomError::ServerError => "Server Error".to_string(),
                         CreateRoomError::InvalidUsernameLength => {
                             "Username's length should be between 1 and 50".to_string()
+                        }
+                        CreateRoomError::InvalidRoomNameLength => {
+                            "Length of room name should be between 1 and 100".to_string()
+                        }
+                        _ => {
+                            "".to_string()
                         }
                     };
                     let error_block = Block::default()
@@ -112,21 +123,105 @@ pub fn ui(
             }
 
             let instruction_block = Block::default()
-                .title("Instruction")
+                .title("Instructions")
                 .borders(Borders::ALL)
                 .style(Style::default());
-            let instruction = Paragraph::new("Enter = confirm username, Esc = back to main menu")
-                .block(instruction_block);
+            let instruction =
+                Paragraph::new("Tab = switch input, Enter = confirm username and room name, Esc = back to main menu")
+                    .block(instruction_block);
 
             frame.render_widget(instruction, area_chunks[2]);
 
-            let popup_area = centered_rect_with_constant_size(40, 3, area_chunks[1]);
-            let input_block = Block::default()
+            let popup_area = centered_rect_with_constant_size(40, 6, area_chunks[1]);
+            let popup_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Fill(1), Constraint::Fill(1)])
+                .split(popup_area);
+
+            let mut username_block = Block::default()
                 .title("Please enter a uername")
                 .borders(Borders::ALL)
-                .style(Style::default().bg(Color::LightYellow).fg(Color::Black));
-            let username = Paragraph::new(app.username.clone()).block(input_block);
-            frame.render_widget(username, popup_area);
+                .style(Style::default().bg(Color::DarkGray).fg(Color::Black));
+
+            let mut room_name_block = Block::default()
+                .title("Please enter a room name")
+                .borders(Borders::ALL)
+                .style(Style::default().bg(Color::DarkGray).fg(Color::Black));
+
+            let active_style = Style::default().bg(Color::LightYellow).fg(Color::Black);
+
+            match app.create_room_input {
+                CreateRoomInput::Username => {
+                    username_block = username_block.style(active_style);
+                }
+                CreateRoomInput::RoomName => {
+                    room_name_block = room_name_block.style(active_style);
+                }
+            }
+
+            let username = Paragraph::new(app.username.clone()).block(username_block);
+            let room_name = Paragraph::new(app.room_name.clone()).block(room_name_block);
+
+            frame.render_widget(username, popup_chunks[0]);
+            frame.render_widget(room_name, popup_chunks[1]);
+
+            if app.password_prompt {
+                let prompt_layout = centered_rect_with_constant_size(80, 5, frame.area());
+                frame.render_widget(Clear, prompt_layout);
+                let pupup_dialog_block = Block::default()
+                    .padding(Padding::vertical(1))
+                    .title("Press 'y' to set a password, or press 'n' to create a room without password")
+                    .title_alignment(Alignment::Center)
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::LightYellow));
+                let popup_dialog = Paragraph::new("Do you want to set a password for this room?")
+                    .alignment(Alignment::Center)
+                    .block(pupup_dialog_block);
+                frame.render_widget(popup_dialog, prompt_layout);
+            }
+        }
+        CurrentScreen::CreatePassword => {
+            let area_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(3),
+                    Constraint::Fill(1),
+                    Constraint::Length(3),
+                ])
+                .split(frame.area());
+            let instructions_block = Block::default().borders(Borders::ALL).title("Instructions");
+            let instructions = Paragraph::new("Enter = confirm, Esc = back to last page")
+                .block(instructions_block);
+            frame.render_widget(instructions, area_chunks[2]);
+
+            let password_area = centered_rect_with_constant_size(40, 3, area_chunks[1]);
+            let password_block = Block::default()
+                .borders(Borders::ALL)
+                .style(Style::default().bg(Color::LightYellow).fg(Color::Black))
+                .title("Please enter a password for this room");
+            let password = Paragraph::new(app.password.clone()).block(password_block);
+
+            frame.render_widget(password, password_area);
+
+            match &app.create_room_error {
+                Some(error) => {
+                    let err_block = Block::default()
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Red));
+                    match error {
+                        CreateRoomError::ServerError => {
+                            let err = Paragraph::new("Server Error").block(err_block);
+                            frame.render_widget(err, area_chunks[0]);
+                        }
+                        CreateRoomError::InvalidPasswordChar => {
+                            let err = Paragraph::new("Length of password should be between 4 and 20 (whitespace not allowed)").block(err_block);
+                            frame.render_widget(err, area_chunks[0]);
+                        }
+                        _ => {}
+                    }
+                }
+                None => {}
+            }
         }
         CurrentScreen::Join => {
             let area_chunks = Layout::default()
@@ -137,7 +232,7 @@ pub fn ui(
                     Constraint::Length(3),
                 ])
                 .split(frame.area());
-            let instruction_block = Block::default().title("Instruction").borders(Borders::ALL);
+            let instruction_block = Block::default().title("Instructions").borders(Borders::ALL);
             let instruction = Paragraph::new(
                 "Tab = switch input, Enter = confirm your input, Esc = back to main menu",
             )
@@ -156,6 +251,9 @@ pub fn ui(
                         JoinRoomError::InvalidUsernameLength => {
                             "Username's length should be between 1 and 50".to_string()
                         }
+                        JoinRoomError::GetRoomListFailed => "Failed to get room list".to_string(),
+                        JoinRoomError::WrongPassword => "Wrong password".to_string(),
+                        JoinRoomError::ZeroRooms => "There is no room to join".to_string(),
                     };
 
                     let error_block = Block::default()
@@ -201,6 +299,114 @@ pub fn ui(
 
             frame.render_widget(username, popup_chunks[0]);
             frame.render_widget(room_id, popup_chunks[1])
+        }
+        CurrentScreen::RoomSelect => {
+            let area_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(3),
+                    Constraint::Fill(1),
+                    Constraint::Length(1),
+                    Constraint::Length(3),
+                ])
+                .split(frame.area());
+
+            let instruction_block = Block::default().title("Instructions").borders(Borders::ALL);
+            let instructions = Paragraph::new("Enter = select, ArrowUp = prev room, ArrowDown = next room, Esc = back to set username").block(instruction_block);
+            frame.render_widget(instructions, area_chunks[3]);
+
+            let height = area_chunks[1].height as usize;
+            let mut room_per_page = height / ROOM_LIST_HEIGHT;
+            if room_per_page == 0 {
+                room_per_page = 1;
+            }
+
+            let start_idx = (app.room_idx / room_per_page) * room_per_page;
+            let end_idx = (start_idx + room_per_page).min(app.room_lst.len());
+
+            let constraints = vec![
+                vec![Constraint::Fill(1)],
+                vec![Constraint::Length(ROOM_LIST_HEIGHT as u16); end_idx - start_idx],
+                vec![Constraint::Fill(1)],
+            ]
+            .concat();
+
+            let room_layout = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints(constraints)
+                .split(area_chunks[1]);
+
+            for idx in start_idx..end_idx {
+                let cur_room = app.room_lst[idx].clone();
+                let title = format!("{}{}", if cur_room.2 { "🔑" } else { "" }, cur_room.0);
+                let mut room_block = Block::default().borders(Borders::ALL).title(title);
+                if idx == app.room_idx {
+                    room_block = room_block.border_style(Style::default().fg(Color::LightYellow));
+                }
+                let room = Paragraph::new(cur_room.1)
+                    .block(room_block)
+                    .alignment(Alignment::Center);
+
+                frame.render_widget(room, room_layout[idx - start_idx + 1]);
+            }
+
+            let cur_page = (app.room_idx / room_per_page) + 1;
+            let mut total_page = (app.room_lst.len() / room_per_page);
+            if app.room_lst.len() % room_per_page != 0 {
+                total_page += 1;
+            }
+
+            let page_display =
+                Paragraph::new(format!("{}/{}", cur_page, total_page)).alignment(Alignment::Center);
+            frame.render_widget(page_display, area_chunks[2]);
+
+            let tmp = Paragraph::new(format!("{}", app.room_idx));
+            frame.render_widget(tmp, frame.area());
+        }
+        CurrentScreen::PasswordCheck => {
+            let area_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(3),
+                    Constraint::Fill(1),
+                    Constraint::Length(3),
+                ])
+                .split(frame.area());
+
+            let instructions_block = Block::default().borders(Borders::ALL).title("Instructions");
+            let instructions = Paragraph::new("Enter = confirm, Esc = back to last page")
+                .block(instructions_block);
+            frame.render_widget(instructions, area_chunks[2]);
+
+            let password_area = centered_rect_with_constant_size(40, 3, area_chunks[1]);
+            let password_block = Block::default()
+                .title("Please enter the password of this room")
+                .borders(Borders::ALL)
+                .style(Style::default().bg(Color::LightYellow).fg(Color::Black));
+            let password = Paragraph::new(app.check_passwork.clone()).block(password_block);
+
+            frame.render_widget(password, password_area);
+
+            match &app.join_room_error {
+                Some(error) => {
+                    let err_block = Block::default()
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Red));
+
+                    match error {
+                        JoinRoomError::RoomNotFound => {
+                            let err = Paragraph::new("Room has been deleted").block(err_block);
+                            frame.render_widget(err, area_chunks[0]);
+                        }
+                        JoinRoomError::WrongPassword => {
+                            let err = Paragraph::new("Wrong password").block(err_block);
+                            frame.render_widget(err, area_chunks[0]);
+                        }
+                        _ => {}
+                    }
+                }
+                None => {}
+            }
         }
         CurrentScreen::Chat => {
             let chunks = Layout::default()

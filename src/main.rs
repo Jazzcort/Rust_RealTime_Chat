@@ -140,26 +140,133 @@ async fn run_app<B: Backend>(
                     }
                     _ => {}
                 },
-                CurrentScreen::Create => match key.code {
-                    KeyCode::Backspace => {
-                        app.username.pop();
+                CurrentScreen::Create => {
+                    if app.password_prompt {
+                        match key.code {
+                            KeyCode::Esc => {
+                                app.password_prompt = false;
+                                app.create_room_error = None;
+                            }
+                            KeyCode::Char('y') => {
+                                app.current_screen = CurrentScreen::CreatePassword;
+                                app.create_room_error = None;
+                            }
+                            KeyCode::Char('n') => {
+                                if let Ok((msg_pipe, room_id)) = Client::create_room(
+                                    app.username.clone(),
+                                    app.room_name.clone(),
+                                    None,
+                                    app.chat_room_record.clone(),
+                                    app.chat_room_member.clone(),
+                                    app.abandon.clone(),
+                                    app.record_size,
+                                    remote_server,
+                                )
+                                .await
+                                {
+                                    app.msg_pipe = Some(msg_pipe);
+                                    app.enter_room(room_id);
+                                } else {
+                                    app.create_room_error = Some(CreateRoomError::ServerError);
+                                }
+                            }
+                            _ => {}
+                        }
+                    } else {
+                        match key.code {
+                            KeyCode::Backspace => match app.create_room_input {
+                                CreateRoomInput::Username => {
+                                    app.username.pop();
+                                    app.create_room_error = None;
+                                }
+                                CreateRoomInput::RoomName => {
+                                    app.room_name.pop();
+                                    app.create_room_error = None
+                                }
+                            },
+                            KeyCode::Tab => match app.create_room_input {
+                                CreateRoomInput::Username => {
+                                    app.create_room_input = CreateRoomInput::RoomName
+                                }
+                                CreateRoomInput::RoomName => {
+                                    app.create_room_input = CreateRoomInput::Username
+                                }
+                            },
+                            KeyCode::Enter => {
+                                if app.username.len() < 1 || app.username.len() > 50 {
+                                    app.create_room_error =
+                                        Some(CreateRoomError::InvalidUsernameLength);
+                                    continue;
+                                }
+                                if app.room_name.len() < 1 || app.room_name.len() > 100 {
+                                    app.create_room_error =
+                                        Some(CreateRoomError::InvalidRoomNameLength);
+                                    continue;
+                                }
+
+                                if !is_valid_string(&app.username) {
+                                    app.create_room_error =
+                                        Some(CreateRoomError::InvalidUsernameChar);
+                                    continue;
+                                }
+                                if !is_valid_string_with_whitespace(&app.room_name) {
+                                    app.create_room_error =
+                                        Some(CreateRoomError::InvalidRoomNameChar);
+                                    continue;
+                                }
+                                app.password_prompt = true;
+                            }
+                            KeyCode::Char(value) => match app.create_room_input {
+                                CreateRoomInput::Username => {
+                                    app.username.push(value);
+                                    app.create_room_error = None;
+                                }
+                                CreateRoomInput::RoomName => {
+                                    app.room_name.push(value);
+                                    app.create_room_error = None;
+                                }
+                            },
+                            KeyCode::Esc => {
+                                app.username.clear();
+                                app.room_name.clear();
+                                app.create_room_error = None;
+                                app.current_screen = CurrentScreen::Entry;
+                                app.create_room_input = CreateRoomInput::Username;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                CurrentScreen::CreatePassword => match key.code {
+                    KeyCode::Char(value) => {
+                        app.password.push(value);
                         app.create_room_error = None;
                     }
+                    KeyCode::Backspace => {
+                        app.password.pop();
+                        app.create_room_error = None;
+                    }
+                    KeyCode::Esc => {
+                        app.password.clear();
+                        app.current_screen = CurrentScreen::Create;
+                        app.create_room_error = None;
+                        app.password_prompt = false;
+                    }
                     KeyCode::Enter => {
-                        if app.username.len() < 1 || app.username.len() > 50 {
-                            app.create_room_error = Some(CreateRoomError::InvalidUsernameLength);
+                        if app.password.len() < 4 || app.password.len() > 20 {
+                            app.create_room_error = Some(CreateRoomError::InvalidPasswordChar);
                             continue;
                         }
 
-                        if !is_username_valid(&app.username) {
-                            app.create_room_error = Some(CreateRoomError::InvalidUsernameChar);
+                        if has_whitespace(&app.password) {
+                            app.create_room_error = Some(CreateRoomError::InvalidPasswordChar);
                             continue;
                         }
 
-                        // app.create_room_error = None;
-
-                        if let Ok((msg_pipe, mut abandon_pipe, room_id)) = Client::create_room(
+                        if let Ok((msg_pipe, room_id)) = Client::create_room(
                             app.username.clone(),
+                            app.room_name.clone(),
+                            Some(app.password.clone()),
                             app.chat_room_record.clone(),
                             app.chat_room_member.clone(),
                             app.abandon.clone(),
@@ -169,47 +276,10 @@ async fn run_app<B: Backend>(
                         .await
                         {
                             app.msg_pipe = Some(msg_pipe);
-                            // let abandon_copy = app.abandon.clone();
-                            // Todo: Delete the chanel, edit Arc directly instead
-                            // tokio::task::spawn(async move {
-                            //     loop {
-                            //         tokio::select! {
-                            //             result = abandon_pipe.recv() => {
-                            //                 if let Some(signal) = result {
-                            //                     if signal == 0 {
-                            //                         let mut abandon_handle = abandon_copy.lock().await;
-                            //                         *abandon_handle = true;
-                            //                         break;
-                            //                     }
-                            //                 } else {
-                            //                     let mut abandon_handle = abandon_copy.lock().await;
-                            //                     *abandon_handle = true;
-                            //                     break;
-                            //                 }
-                            //             }
-                            //         }
-                            //         if let Some(signal) = abandon_pipe.recv().await {
-                            //             if signal == 0 {
-                            //                 let mut abandon_handle = abandon_copy.lock().await;
-                            //                 *abandon_handle = true;
-                            //                 break;
-                            //             }
-                            //         }
-                            //     }
-                            // });
                             app.enter_room(room_id);
                         } else {
                             app.create_room_error = Some(CreateRoomError::ServerError);
                         }
-                    }
-                    KeyCode::Char(value) => {
-                        app.username.push(value);
-                        app.create_room_error = None;
-                    }
-                    KeyCode::Esc => {
-                        app.username.clear();
-                        app.create_room_error = None;
-                        app.current_screen = CurrentScreen::Entry
                     }
                     _ => {}
                 },
@@ -255,14 +325,108 @@ async fn run_app<B: Backend>(
                             continue;
                         }
 
-                        if !is_username_valid(&app.username) {
+                        if !is_valid_string(&app.username) {
                             app.join_room_error = Some(JoinRoomError::InvalidUsername);
                             continue;
                         }
 
-                        if let Ok((msg_pipe, mut abandon_pipe, room_id)) = Client::enter_room(
+                        if let Ok(room_lst) = Client::get_room_list(remote_server).await {
+                            app.room_lst = room_lst;
+                        } else {
+                            app.join_room_error = Some(JoinRoomError::GetRoomListFailed);
+                        }
+
+                        if app.room_lst.len() != 0 {
+                            app.current_screen = CurrentScreen::RoomSelect;
+                        } else {
+                            app.join_room_error = Some(JoinRoomError::ZeroRooms);
+                        }
+                    }
+                    KeyCode::Esc => {
+                        app.username.clear();
+                        app.room_id.clear();
+                        app.join_room_error = None;
+                        app.current_screen = CurrentScreen::Entry;
+                    }
+                    _ => {}
+                },
+                CurrentScreen::RoomSelect => match key.code {
+                    KeyCode::Enter => {
+                        let select_room = app.room_lst[app.room_idx].clone();
+
+                        if select_room.2 {
+                            app.current_screen = CurrentScreen::PasswordCheck;
+                        } else {
+                            if let Ok((msg_pipe, room_id)) = Client::enter_room(
+                                app.username.clone(),
+                                select_room.0,
+                                None,
+                                app.chat_room_record.clone(),
+                                app.chat_room_member.clone(),
+                                app.abandon.clone(),
+                                app.record_size,
+                                remote_server,
+                            )
+                            .await
+                            {
+                                app.msg_pipe = Some(msg_pipe);
+                                app.enter_room(room_id);
+                            } else {
+                                app.join_room_error = Some(JoinRoomError::RoomNotFound)
+                            }
+                        }
+                    }
+                    KeyCode::Esc => {
+                        app.current_screen = CurrentScreen::Join;
+                    }
+                    KeyCode::Char('r') => {
+                        if let Ok(room_lst) = Client::get_room_list(remote_server).await {
+                            if room_lst.len() != 0 {
+                                app.room_lst = room_lst;
+                                app.room_idx = 0;
+                            } else {
+                                app.room_lst.clear();
+                                app.room_idx = 0;
+                                app.join_room_error = Some(JoinRoomError::ZeroRooms);
+                                app.current_screen = CurrentScreen::Join;
+                            }
+                        } else {
+                            app.room_lst.clear();
+                            app.room_idx = 0;
+                            app.join_room_error = Some(JoinRoomError::GetRoomListFailed);
+                            app.current_screen = CurrentScreen::Join;
+                        }
+                    }
+                    KeyCode::Up => match app.room_idx.checked_sub(1) {
+                        Some(val) => app.room_idx = val,
+                        None => app.room_idx = 0,
+                    },
+                    KeyCode::Down => {
+                        if app.room_lst.len() > app.room_idx + 1 {
+                            app.room_idx += 1;
+                        }
+                    }
+                    _ => {}
+                },
+                CurrentScreen::PasswordCheck => match key.code {
+                    KeyCode::Esc => {
+                        app.current_screen = CurrentScreen::RoomSelect;
+                        app.check_passwork.clear();
+                        app.join_room_error = None;
+                    }
+                    KeyCode::Char(value) => {
+                        app.check_passwork.push(value);
+                        app.join_room_error = None;
+                    }
+                    KeyCode::Backspace => {
+                        app.check_passwork.pop();
+                        app.join_room_error = None;
+                    }
+                    KeyCode::Enter => {
+                        match Client::enter_room(
                             app.username.clone(),
-                            app.room_id.clone(),
+                            app.room_lst[app.room_idx].0.clone(),
+                            Some(app.check_passwork.clone()),
                             app.chat_room_record.clone(),
                             app.chat_room_member.clone(),
                             app.abandon.clone(),
@@ -271,29 +435,20 @@ async fn run_app<B: Backend>(
                         )
                         .await
                         {
-                            app.msg_pipe = Some(msg_pipe);
-                            // let abandon_copy = app.abandon.clone();
-                            // tokio::task::spawn(async move {
-                            //     loop {
-                            //         if let Some(signal) = abandon_pipe.recv().await {
-                            //             if signal == 0 {
-                            //                 let mut abandon_handle = abandon_copy.lock().await;
-                            //                 *abandon_handle = true;
-                            //                 break;
-                            //             }
-                            //         }
-                            //     }
-                            // });
-                            app.enter_room(room_id);
-                        } else {
-                            app.join_room_error = Some(JoinRoomError::RoomNotFound)
+                            Ok((msg_pipe, room_id)) => {
+                                app.msg_pipe = Some(msg_pipe);
+                                app.enter_room(room_id);
+                            }
+                            Err(e) => match e.kind() {
+                                std::io::ErrorKind::BrokenPipe => {
+                                    app.join_room_error = Some(JoinRoomError::RoomNotFound);
+                                }
+                                std::io::ErrorKind::InvalidInput => {
+                                    app.join_room_error = Some(JoinRoomError::WrongPassword);
+                                }
+                                _ => {}
+                            },
                         }
-                    }
-                    KeyCode::Esc => {
-                        app.username.clear();
-                        app.room_id.clear();
-                        app.join_room_error = None;
-                        app.current_screen = CurrentScreen::Entry;
                     }
                     _ => {}
                 },
@@ -347,9 +502,22 @@ async fn run_app<B: Backend>(
     Ok(())
 }
 
-fn is_username_valid(username: &str) -> bool {
+fn is_valid_string(s: &str) -> bool {
     static USERNAME_RESTRICT: Lazy<Regex> =
         Lazy::new(|| Regex::new(r#"([!@#$%\^\&\*\(\)\+=\[\]\{\}:;'"/<>|\\`~\?,\.\s]+)"#).unwrap());
 
-    !USERNAME_RESTRICT.is_match(username)
+    !USERNAME_RESTRICT.is_match(s)
+}
+
+fn is_valid_string_with_whitespace(s: &str) -> bool {
+    static USERNAME_RESTRICT: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r#"([@#$%\^\&\(\)\+=\[\]\{\}:;'"/|\\`~,\.]+)"#).unwrap());
+
+    !USERNAME_RESTRICT.is_match(s)
+}
+
+fn has_whitespace(s: &str) -> bool {
+    static USERNAME_RESTRICT: Lazy<Regex> = Lazy::new(|| Regex::new(r#"([\s]+)"#).unwrap());
+
+    USERNAME_RESTRICT.is_match(s)
 }
