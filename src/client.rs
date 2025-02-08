@@ -1,13 +1,11 @@
-use crate::util::{clear_buf, read_buf};
+use crate::util::read_buf;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::VecDeque;
-use std::io::{stdin, Error, ErrorKind};
+use std::io::{Error, ErrorKind};
 use std::sync::Arc;
-use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
-use tokio::select;
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 use tokio::task;
@@ -38,7 +36,7 @@ impl Client {
         let (reader, _) = stream.split();
         let mut reader = BufReader::new(reader);
 
-        let buffer = Vec::from(reader.fill_buf().await.unwrap());
+        let buffer = Vec::from(reader.fill_buf().await?);
         reader.consume(buffer.len());
         let room_id = read_buf(&buffer);
 
